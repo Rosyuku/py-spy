@@ -27,6 +27,8 @@ pub struct Config {
     #[doc(hidden)]
     pub filename: Option<String>,
     #[doc(hidden)]
+    pub dirname: Option<String>,
+    #[doc(hidden)]
     pub format: Option<FileFormat>,
     #[doc(hidden)]
     pub show_line_numbers: bool,
@@ -71,7 +73,7 @@ impl Default for Config {
     #[allow(dead_code)]
     fn default() -> Config {
         Config{pid: None, python_program: None, filename: None, format: None,
-               command: String::from("top"),
+               command: String::from("top"), dirname: None,
                non_blocking: false, show_line_numbers: false, sampling_rate: 100,
                duration: RecordDuration::Unlimited, native: false,
                gil_only: false, include_idle: false, include_thread_ids: false,
@@ -197,7 +199,26 @@ impl Config {
                 .short("j")
                 .long("json")
                 .help("Format output as JSON"));
-
+        let log = clap::SubCommand::with_name("log")
+            .about("Records stack trace information to json files per rate")
+            .arg(program.clone())
+            .arg(pid.clone())
+            .arg(Arg::with_name("output")
+                .short("o")
+                .long("output")
+                .value_name("dirname")
+                .help("Output dirname")
+                .takes_value(true)
+                .default_value("./"))
+            .arg(Arg::with_name("duration")
+                .short("d")
+                .long("duration")
+                .value_name("duration")
+                .help("The number of seconds to sample for")
+                .default_value("unlimited")
+                .takes_value(true))
+            .arg(rate.clone())
+            .arg(subprocesses.clone());    
         // add native unwinding if appropiate
         #[cfg(unwind)]
         let record = record.arg(native.clone());
@@ -205,6 +226,8 @@ impl Config {
         let top = top.arg(native.clone());
         #[cfg(unwind)]
         let dump = dump.arg(native.clone());
+        #[cfg(unwind)]
+        let log = log.arg(native.clone());
 
         // Nonblocking isn't an option for freebsd, remove
         #[cfg(not(target_os="freebsd"))]
@@ -213,6 +236,8 @@ impl Config {
         let top = top.arg(nonblocking.clone());
         #[cfg(not(target_os="freebsd"))]
         let dump = dump.arg(nonblocking.clone());
+        #[cfg(not(target_os="freebsd"))]
+        let log = log.arg(nonblocking.clone());
 
         let matches = App::new(crate_name!())
             .version(crate_version!())
@@ -224,6 +249,7 @@ impl Config {
             .subcommand(record)
             .subcommand(top)
             .subcommand(dump)
+            .subcommand(log)
             .get_matches_from_safe(args)?;
         info!("Command line args: {:?}", matches);
 
@@ -245,6 +271,14 @@ impl Config {
             "top" => {
                 config.sampling_rate = value_t!(matches, "rate", u64)?;
             }
+            "log" => {
+                config.sampling_rate = value_t!(matches, "rate", u64)?;
+                config.duration = match matches.value_of("duration") {
+                    Some("unlimited") | None => RecordDuration::Unlimited,
+                    Some(seconds) => RecordDuration::Seconds(seconds.parse().expect("invalid duration"))
+                };
+                config.dirname = matches.value_of("output").map(|f| f.to_owned());
+            }            
             _ => {}
         }
         config.command = subcommand.to_owned();

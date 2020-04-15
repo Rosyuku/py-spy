@@ -336,6 +336,9 @@ fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(
         "top" => {
             sample_console(pid, config)?;
         }
+        "log" => {
+            dump::save_traces(pid, config)?;
+        },        
         _ => {
             // shouldn't happen
             return Err(format_err!("Unknown command {}", config.command));

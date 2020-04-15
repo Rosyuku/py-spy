@@ -1,5 +1,9 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
+use chrono::Utc;
 use console::style;
 use failure::Error;
 
@@ -83,6 +87,17 @@ pub fn print_traces(pid: Pid, config: &Config) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+pub fn save_traces(pid: Pid, config: &Config) -> Result<(), Error> {
+    let mut process = PythonSpy::new(pid, config)?;
+    let traces = process.get_stack_traces()?;
+    let filename = format!("{0}_{1}.json", pid, Utc::now().format("%Y%m%d-%H%M%S.%3f-%Z").to_string());
+    let dirname = config.dirname.as_ref().unwrap();
+    let savepath = Path::new(&dirname).join(filename);
+    let mut f = fs::File::create(savepath).unwrap();
+    f.write_all(serde_json::to_string_pretty(&traces).unwrap().as_bytes())?;
+    return Ok(())
 }
 
 /// Returns a hashmap of threadid: threadname, by inspecting the '_active' variable in the
