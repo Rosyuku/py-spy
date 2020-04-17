@@ -1,10 +1,5 @@
 use std::collections::HashMap;
-use std::fs;
-use std::io::Write;
-use std::path::Path;
-use std::time::{Duration, Instant};
 
-use chrono::Local;
 use console::style;
 use failure::Error;
 
@@ -88,35 +83,6 @@ pub fn print_traces(pid: Pid, config: &Config) -> Result<(), Error> {
         }
     }
     Ok(())
-}
-
-pub fn save_traces(pid: Pid, config: &Config) -> Result<(), Error> {
-    let mut process = PythonSpy::new(pid, config)?;
-    let sleep_time = Duration::from_millis((1000.0 / config.sampling_rate as f64) as u64);
-    let duration_time = Duration::from_secs(360000);
-    let mut done = false;
-    let start = Instant::now();
-    while !done {
-        let start_in_while = Instant::now();
-        let traces = process.get_stack_traces()?;
-        let filename = format!("{0}_{1}.json", pid, Local::now().format("%Y%m%d-%H%M%S.%3f").to_string());
-        let dirname = config.dirname.as_ref().unwrap();
-        let savepath = Path::new(&dirname).join(filename);
-        let mut f = fs::File::create(savepath).unwrap();
-        f.write_all(serde_json::to_string_pretty(&traces).unwrap().as_bytes())?;
-        let duration = start.elapsed();
-        if duration >= duration_time {
-            done = true;
-        }
-        let mut done_in_while = false;
-        while !done_in_while {
-            let duration_in_while = start_in_while.elapsed();
-            if duration_in_while >= sleep_time {
-                done_in_while = true;
-            }
-        }
-    }
-    return Ok(())
 }
 
 /// Returns a hashmap of threadid: threadname, by inspecting the '_active' variable in the

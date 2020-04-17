@@ -1,6 +1,6 @@
 [package]
-name = "py-spy"
-version = "0.4.0"
+name = "py-spy-kw"
+version = "0.1.2"
 authors = ["Ben Frederickson <github@benfrederickson.com>"]
 repository = "https://github.com/Rosyuku/py-spy"
 homepage = "https://github.com/Rosyuku/py-spy"

@@ -57,7 +57,11 @@ use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
+use chrono::Local;
 use console::style;
 use failure::Error;
 
@@ -142,6 +146,121 @@ impl Recorder for RawFlamegraph {
     fn write(&self, w: &mut std::fs::File) -> Result<(), Error> {
         self.0.write_raw(w)
     }
+}
+
+fn log_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error> {
+    let sampler = sampler::Sampler::new(pid, config)?;
+    // if we're not showing a progress bar, it's probably because we've spawned the process and
+    // are displaying its stderr/stdout. In that case add a prefix to our println messages so
+    // that we can distinguish
+    let lede = if config.hide_progress {
+        format!("{}{} ", style("py-spy").bold().green(), style(">").dim())
+    } else {
+        "".to_owned()
+    };
+
+    let max_samples = match &config.duration {
+        RecordDuration::Unlimited => {
+            println!("{}Sampling process {} times a second. Press Control-C to exit.", lede, config.sampling_rate);
+            None
+        },
+        RecordDuration::Seconds(sec) => {
+            println!("{}Sampling process {} times a second for {} seconds. Press Control-C to exit.", lede, config.sampling_rate, sec);
+            Some(sec * config.sampling_rate)
+        }
+    };
+
+    use indicatif::ProgressBar;
+    let progress = match (config.hide_progress, &config.duration) {
+        (true, _) => ProgressBar::hidden(),
+        (false, RecordDuration::Seconds(_)) => ProgressBar::new(max_samples.unwrap()),
+        (false, RecordDuration::Unlimited) => {
+            let progress = ProgressBar::new_spinner();
+
+            // The spinner on windows doesn't look great: was replaced by a [?] character at least on
+            // my system. Replace unicode spinners with just how many seconds have elapsed
+            #[cfg(windows)]
+            progress.set_style(indicatif::ProgressStyle::default_spinner().template("[{elapsed}] {msg}"));
+            progress
+        }
+    };
+
+    let mut errors = 0;
+    let mut samples = 0;
+    println!();
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })?;
+
+    let mut exit_message = "Stopped sampling because process exitted";
+    let mut last_late_message = std::time::Instant::now();
+
+    for sample in sampler {
+        if let Some(delay) = sample.late {
+            if delay > Duration::from_secs(1) {
+                if config.hide_progress {
+                    // display a message if we're late, but don't spam the log
+                    let now = std::time::Instant::now();
+                    if now - last_late_message > Duration::from_secs(1) {
+                        last_late_message = now;
+                        println!("{}{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate", lede, delay)
+                    }
+                } else {
+                    let term = console::Term::stdout();
+                    term.move_cursor_up(2)?;
+                    println!("{:.2?} behind in sampling, results may be inaccurate. Try reducing the sampling rate.", delay);
+                    term.move_cursor_down(1)?;
+                }
+            }
+        }
+
+        if !running.load(Ordering::SeqCst) {
+            exit_message = "Stopped sampling because Control-C pressed";
+            break;
+        }
+
+        samples += 1;
+        if let Some(max_samples) = max_samples {
+            if samples >= max_samples {
+                exit_message = "";
+                break;
+            }
+        }
+
+        let filename = format!("{0}_{1}.json", pid, Local::now().format("%Y%m%d-%H%M%S.%3f").to_string());
+        let dirname = config.dirname.as_ref().unwrap();
+        let savepath = Path::new(&dirname).join(filename);
+        let mut f = fs::File::create(savepath).unwrap();
+        f.write_all(serde_json::to_string_pretty(&sample.traces).unwrap().as_bytes())?;
+
+        if let Some(sampling_errors) = sample.sampling_errors {
+            for (pid, e) in sampling_errors {
+                warn!("Failed to get stack trace from {}: {}", pid, e);
+                errors += 1;
+            }
+        }
+
+        if config.duration == RecordDuration::Unlimited {
+            let msg = if errors > 0 {
+                format!("Collected {} samples ({} errors)", samples, errors)
+            } else {
+                format!("Collected {} samples", samples)
+            };
+            progress.set_message(&msg);
+        }
+        progress.inc(1);
+    }
+    progress.finish();
+    // write out a message here (so as not to interfere with progress bar) if we ended earlier
+    if !exit_message.is_empty() {
+        println!("\n{}{}", lede, exit_message);
+    }
+
+    Ok(())
+
 }
 
 fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error> {
@@ -337,7 +456,11 @@ fn run_spy_command(pid: remoteprocess::Pid, config: &config::Config) -> Result<(
             sample_console(pid, config)?;
         }
         "log" => {
-            dump::save_traces(pid, config)?;
+            //dump::save_traces(pid, config)?;
+            //sample_console(pid, config)?;
+            //dump::print_traces(pid, config)?;
+            //record_samples(pid, config)?;
+            log_samples(pid, config)?;
         },        
         _ => {
             // shouldn't happen
