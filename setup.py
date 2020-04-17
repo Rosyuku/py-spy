@@ -31,12 +31,11 @@ except ImportError:
 
 
 try:
-    import pypandoc
-    long_description = pypandoc.convert_file("README.md", "rst")
+    long_description = open('README.md').read()
 except ImportError:
     long_description = ''
 
-executable_name = "py-spy.exe" if sys.platform.startswith("win") else "py-spy"
+executable_name = "py-spy-kw.exe" if sys.platform.startswith("win") else "py-spy-kw"
 
 
 class PostInstallCommand(install):
@@ -83,13 +82,16 @@ class PostInstallCommand(install):
         self.copy_file(source, target)
 
 
-setup(name='py-spy',
+setup(name='py-spy-kw',
       author="Ben Frederickson",
       author_email="ben@benfrederickson.com",
-      url='https://github.com/benfred/py-spy',
+      maintainer='Rosyuku',
+      maintainer_email='kw.Rosyuku@gmail.com',
+      url='https://github.com/Rosyuku/py-spy',
       description="A Sampling Profiler for Python",
       long_description=long_description,
-      version="0.3.3",
+      long_description_content_type='text/markdown',
+      version="0.1.2",
       license="MIT",
       cmdclass={'install': PostInstallCommand, 'bdist_wheel': bdist_wheel},
       classifiers=[
